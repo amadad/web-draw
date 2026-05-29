@@ -37,6 +37,10 @@ import { useEditorChrome } from './editor/useEditorChrome';
 import { useEditorIdentity } from './editor/useEditorIdentity';
 import { ShareModal } from '../components/ShareModal';
 import { HistoryPanel } from '../components/HistoryPanel';
+import { useCopilotTools } from '../copilot/useCopilotTools';
+import { CopilotPanel } from '../copilot/CopilotPanel';
+
+const COPILOT_ENABLED = import.meta.env.VITE_COPILOT_ENABLED === 'true';
 
 interface Peer extends UserIdentity {
   isActive: boolean;
@@ -1714,6 +1718,10 @@ export const Editor: React.FC = () => {
     }
   };
 
+  // Co-pilot tool layer (no-op render unless VITE_COPILOT_ENABLED). Hook is always
+  // called to respect the rules of hooks; only the panel render is gated.
+  const { runTool: copilotRunTool } = useCopilotTools(excalidrawAPI, { canEdit });
+
   return (
     <div className="h-screen flex flex-col bg-white dark:bg-neutral-950 overflow-hidden">
       <header 
@@ -1979,6 +1987,7 @@ export const Editor: React.FC = () => {
               window.location.reload();
             }}
           />
+          {COPILOT_ENABLED && canEdit ? <CopilotPanel runTool={copilotRunTool} /> : null}
         </>
       ) : null}
     </div>
