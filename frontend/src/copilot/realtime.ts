@@ -17,10 +17,11 @@ export type RealtimeOptions = {
 
 const SESSION_INSTRUCTIONS = [
   "You are a drawing co-pilot embedded in an Excalidraw whiteboard.",
-  "When the user asks for anything visual, USE THE TOOLS to draw/edit/navigate the canvas —",
-  "do not just describe what you would do. Call get_scene first when you need element ids.",
-  "Prefer add_diagram (Mermaid) for structured diagrams and add_elements for a few shapes.",
-  "Keep spoken replies short — one sentence — since the result is visible on the canvas.",
+  "For ANY request that involves drawing, editing, navigating, or changing the board, you MUST",
+  "call a tool to actually do it. Never only describe or say you'll do it — act first, then give",
+  "a one-sentence spoken confirmation. If unsure of element ids, call get_scene first.",
+  "Prefer add_diagram (Mermaid) for structured diagrams and add_elements for a few loose shapes.",
+  "Only reply in words without a tool call for pure questions that require no canvas change.",
 ].join(" ");
 
 async function fetchCsrf(): Promise<{ token: string; header: string }> {
@@ -46,10 +47,21 @@ export class RealtimeCopilot {
   private micTrack: MediaStreamTrack | null = null;
   private audioEl: HTMLAudioElement | null = null;
   private opts: RealtimeOptions;
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  // Cost guardrail: auto-disconnect after this much inactivity (no events/sends).
+  private static IDLE_MS = 3 * 60 * 1000;
   state: CopilotState = "idle";
 
   constructor(opts: RealtimeOptions) {
     this.opts = opts;
+  }
+
+  private touchIdle() {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => {
+      this.opts.onEvent?.("idle timeout — disconnecting");
+      this.disconnect();
+    }, RealtimeCopilot.IDLE_MS);
   }
 
   private setState(s: CopilotState, detail?: string) {
@@ -73,10 +85,14 @@ export class RealtimeCopilot {
         if (this.audioEl) this.audioEl.srcObject = e.streams[0];
       };
 
-      // Local mic (push-to-talk starts muted). Non-fatal: if there's no mic or the
-      // user denies permission, fall back to text-only mode (recvonly for model audio).
+      // Local mic (push-to-talk starts muted). Non-fatal: if there's no mic, the user
+      // denies permission, or the prompt hangs, fall back to text-only mode (recvonly
+      // for the model's audio). The timeout guards against getUserMedia never resolving.
       try {
-        const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mic = await Promise.race<MediaStream>([
+          navigator.mediaDevices.getUserMedia({ audio: true }),
+          new Promise<MediaStream>((_, rej) => setTimeout(() => rej(new Error("mic timeout")), 6000)),
+        ]);
         this.micTrack = mic.getAudioTracks()[0];
         this.micTrack.enabled = false;
         pc.addTrack(this.micTrack, mic);
@@ -105,6 +121,7 @@ export class RealtimeCopilot {
       await pc.setRemoteDescription(answer);
 
       this.setState("live");
+      this.touchIdle();
     } catch (err: any) {
       console.error("[copilot] connect failed", err);
       this.setState("error", err?.message || String(err));
@@ -114,6 +131,7 @@ export class RealtimeCopilot {
 
   private send(obj: unknown) {
     if (this.dc && this.dc.readyState === "open") this.dc.send(JSON.stringify(obj));
+    this.touchIdle();
   }
 
   private configureSession() {
@@ -143,6 +161,7 @@ export class RealtimeCopilot {
   }
 
   private async onServerEvent(evt: any) {
+    this.touchIdle();
     switch (evt.type) {
       case "response.function_call_arguments.done": {
         const { name, call_id, arguments: argStr } = evt;
@@ -172,6 +191,10 @@ export class RealtimeCopilot {
   }
 
   disconnect() {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
     try {
       this.micTrack?.stop();
       this.dc?.close();
