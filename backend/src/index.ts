@@ -26,6 +26,7 @@ import { errorHandler, asyncHandler } from "./middleware/errorHandler";
 import authRouter from "./auth";
 import { logAuditEvent } from "./utils/audit";
 import { registerDashboardRoutes } from "./routes/dashboard";
+import { registerRealtimeRoutes } from "./routes/realtime/session";
 import { registerImportExportRoutes } from "./routes/importExport";
 import { registerSystemRoutes } from "./routes/system";
 import { prisma } from "./db/prisma";
@@ -629,6 +630,8 @@ registerDashboardRoutes(app, {
   config,
   logAuditEvent,
 });
+
+registerRealtimeRoutes({ app, requireAuth, asyncHandler });
 
 registerImportExportRoutes({
   app,
