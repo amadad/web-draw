@@ -31,11 +31,59 @@ export function CopilotPanel({ runTool }: { runTool: RunTool }) {
   const [text, setText] = useState("");
   const [dev, setDev] = useState(false);
   const [toolInput, setToolInput] = useState(TOOL_EXAMPLES[0]);
+  const [talking, setTalking] = useState(false);
+  const [micMode, setMicMode] = useState<"ptt" | "open">("ptt");
   const rtRef = useRef<RealtimeCopilot | null>(null);
 
   const pushLog = (line: string) => setLog((l) => [line, ...l].slice(0, 14));
+  const micOn = () => {
+    rtRef.current?.setMicEnabled(true);
+    setTalking(true);
+  };
+  const micOff = () => {
+    rtRef.current?.setMicEnabled(false);
+    setTalking(false);
+  };
 
   useEffect(() => () => rtRef.current?.disconnect(), []);
+
+  // Keyboard push-to-talk: hold ` (Backquote) to talk. Captured before Excalidraw's
+  // own key handlers, and ignored while typing in an input/textarea so the text box
+  // and canvas shortcuts keep working.
+  // Open-mic mode: keep the mic continuously on (Realtime server-VAD detects turns).
+  // PTT mode: mic stays muted until a key/button is held.
+  useEffect(() => {
+    if (state !== "live") return;
+    if (micMode === "open") micOn();
+    else micOff();
+  }, [micMode, state]);
+
+  useEffect(() => {
+    if (state !== "live" || micMode !== "ptt") return;
+    const isTyping = () => {
+      const el = document.activeElement as HTMLElement | null;
+      return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+    };
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== "Backquote" || e.repeat || isTyping()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      micOn();
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code !== "Backquote") return;
+      e.preventDefault();
+      e.stopPropagation();
+      micOff();
+    };
+    window.addEventListener("keydown", down, true);
+    window.addEventListener("keyup", up, true);
+    return () => {
+      window.removeEventListener("keydown", down, true);
+      window.removeEventListener("keyup", up, true);
+      micOff();
+    };
+  }, [state, micMode]);
 
   const start = async () => {
     if (rtRef.current) return;
@@ -120,19 +168,37 @@ export function CopilotPanel({ runTool }: { runTool: RunTool }) {
             Stop
           </button>
         )}
+        {live && micMode === "ptt" && (
+          <button
+            onMouseDown={micOn}
+            onMouseUp={micOff}
+            onMouseLeave={micOff}
+            data-testid="copilot-ptt"
+            className={`select-none rounded-md px-3 py-1.5 text-sm font-medium text-white ${talking ? "bg-emerald-700" : "bg-emerald-600 hover:bg-emerald-500"}`}
+            title="Hold to talk (or hold the ` key)"
+          >
+            {talking ? "🔴 talking…" : "🎙 Hold to talk"}
+          </button>
+        )}
+        {live && micMode === "open" && (
+          <span className="select-none rounded-md bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" data-testid="copilot-listening">
+            🔴 listening
+          </span>
+        )}
         {live && (
           <button
-            onMouseDown={() => rtRef.current?.setMicEnabled(true)}
-            onMouseUp={() => rtRef.current?.setMicEnabled(false)}
-            onMouseLeave={() => rtRef.current?.setMicEnabled(false)}
-            data-testid="copilot-ptt"
-            className="select-none rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 active:bg-emerald-700"
-            title="Hold to talk"
+            onClick={() => setMicMode((m) => (m === "ptt" ? "open" : "ptt"))}
+            data-testid="copilot-micmode"
+            className="ml-auto rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-neutral-600 dark:text-gray-300 dark:hover:bg-neutral-800"
+            title="Switch between hold-to-talk and always-listening"
           >
-            🎙 Hold to talk
+            {micMode === "ptt" ? "🎙 push-to-talk" : "📡 open mic"}
           </button>
         )}
       </div>
+      {live && micMode === "ptt" && (
+        <div className="mt-1 text-[11px] text-gray-400">Hold <kbd className="rounded border px-1">`</kbd> or the button to talk.</div>
+      )}
 
       {live && (
         <div className="mt-2 flex items-center gap-2">

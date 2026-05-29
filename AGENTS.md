@@ -143,7 +143,9 @@ Understand runtime first, then touch code with local tests if requested.
 ## Repository map (high signal)
 
 - `backend/`: Express API, Prisma schema, auth, sockets, scripts, Docker runtime.
+  - `backend/src/routes/realtime/session.ts`: mints ephemeral OpenAI Realtime client secrets for the voice co-pilot.
 - `frontend/`: React UI, API client wiring, Vite config/build pipeline.
+  - `frontend/src/copilot/`: voice co-pilot — `tools.ts` (Excalidraw tool registry), `useCopilotTools.ts` (dispatcher), `webmcp.ts` (WebMCP adapter), `realtime.ts` (gpt-realtime-2 WebRTC client), `CopilotPanel.tsx` (UI). Gated by `VITE_COPILOT_ENABLED`.
 - `e2e/`: Playwright tests and compose-based test runner.
 - `docker-compose.yml`: local compose setup for source builds.
 - `docker-compose.prod.yml`: production-style compose using published images.
@@ -252,11 +254,19 @@ Backend Docker/env control variables:
 - `MIGRATION_LOCK_TIMEOUT_SECONDS` (default `120`)
 - `JWT_SECRET` and `CSRF_SECRET` persistence support (`.jwt_secret`, `.csrf_secret` in volume)
 
+Voice co-pilot (backend, all optional — endpoint returns 503 if `OPENAI_API_KEY` is unset):
+
+- `OPENAI_API_KEY` (server-side only; used to mint Realtime ephemeral secrets — never sent to the browser)
+- `REALTIME_MODEL` (default `gpt-realtime-2`)
+- `REALTIME_VOICE` (default `marin`)
+- `REALTIME_EFFORT` (reasoning effort, default `low`; raise for heavier design sessions)
+
 Frontend variables:
 
 - `VITE_API_URL` (default `/api`)
 - `VITE_APP_VERSION` (from build-time metadata)
 - `VITE_APP_BUILD_LABEL` (build metadata label)
+- `VITE_COPILOT_ENABLED` (build arg/env; `"true"` mounts the voice co-pilot panel — baked at Vite build time)
 - `BACKEND_URL` (frontend container entrypoint only; default `backend:8000`, injected into nginx template)
 
 E2E variables:
@@ -281,6 +291,7 @@ E2E variables:
 - `DEBUG_CSRF`: log CSRF debug output for troubleshooting.
 - `BOOTSTRAP_SETUP_CODE_TTL_MS`: bootstrap setup code expiry.
 - `BOOTSTRAP_SETUP_CODE_MAX_ATTEMPTS`: max bootstrap attempts before code refresh.
+- `VITE_COPILOT_ENABLED`: build-time flag that mounts the voice co-pilot panel in the editor (default off). Requires `OPENAI_API_KEY` on the backend to function.
 
 ## Reverse proxy / Kubernetes notes
 
@@ -302,7 +313,7 @@ Backend entrypoint flow:
 - `backend/src/db/prisma.ts` wraps Prisma client and caches in non-production.
 - `backend/src/security.ts` and `backend/src/routes/system/update.ts` contain request security and update-check controls.
 - Migration handling for runtime is in `backend/docker-entrypoint.sh`.
-- Build pipeline for runtime includes Prisma generation and TypeScript compile in `backend/Dockerfile`.
+- Build pipeline for runtime includes Prisma generation and TypeScript compile in `backend/Dockerfile`. The prod compile uses `tsconfig.build.json` (excludes `__tests__`/`*.test.ts`/`*.integration.ts`) — test files are not type-checked in the image build.
 
 Frontend architecture notes:
 
