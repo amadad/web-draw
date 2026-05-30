@@ -321,6 +321,7 @@ Frontend architecture notes:
 - `frontend/src/pages/` contains route-level features.
 - `frontend/src/context/` contains auth/theme state.
 - `frontend/src/pages/Editor.tsx` wires Socket.IO and live collaboration.
+- `frontend/src/copilot/CopilotPanel.tsx` (the only hand-built co-pilot UI) follows the app's neo-brutalist convention: `border-2`/black borders + hard offset shadows (`shadow-[Npx_Npx_0px_0px_rgba(0,0,0,1)]`), lucide icons (no emoji), `neutral`/`slate`/`indigo` ramp. It is an accessible surface (`aria-live` log, keyboard push-to-talk via `` ` ``, focus management, error card with retry) — keep these tokens and affordances when editing.
 - `frontend/vite.config.ts` sets Vite proxy to backend in local dev and compile-time app metadata.
 - Production serving and backend proxy are handled by `frontend/Dockerfile`, `frontend/nginx.conf.template`, `frontend/docker-entrypoint.sh`.
 

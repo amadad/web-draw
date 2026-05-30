@@ -1,6 +1,20 @@
 // Co-pilot panel: voice (push-to-talk) + text-to-agent + a raw tool-runner for debugging.
 // Voice/text drive the gpt-realtime-2 session; the session calls our canvas tools.
+// Styled to match the app's neo-brutalist system (border-2 / hard offset shadows / lucide icons).
 import { useEffect, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  Bot,
+  ChevronDown,
+  ChevronRight,
+  Mic,
+  MicOff,
+  Radio,
+  RotateCcw,
+  Send,
+  Wrench,
+  X,
+} from "lucide-react";
 import type { RunTool } from "./useCopilotTools";
 import { RealtimeCopilot, type CopilotState } from "./realtime";
 import { realtimeToolSchemas } from "./tools";
@@ -11,22 +25,40 @@ const TOOL_EXAMPLES = [
   '{"tool":"set_viewport","args":{"fit":"all"}}',
 ];
 
-const STATE_LABEL: Record<CopilotState, string> = {
-  idle: "● idle",
-  connecting: "● connecting…",
-  live: "● live",
-  error: "● error",
+const STATE_META: Record<CopilotState, { label: string; dot: string }> = {
+  idle: { label: "Idle", dot: "bg-neutral-400" },
+  connecting: { label: "Connecting…", dot: "bg-amber-500" },
+  live: { label: "Live", dot: "bg-emerald-500" },
+  error: { label: "Error", dot: "bg-rose-500" },
 };
-const STATE_COLOR: Record<CopilotState, string> = {
-  idle: "text-gray-400",
-  connecting: "text-amber-500",
-  live: "text-emerald-500",
-  error: "text-red-500",
-};
+
+// Map a raw connection failure to a plain-language, actionable message.
+// A denied/absent mic is NOT an error (realtime.ts falls back to text-only),
+// so the error state is always a session-mint or voice-service negotiation failure.
+function friendlyError(detail?: string): string {
+  const d = detail || "";
+  if (/session mint failed|csrf|\b401\b|\b403\b/i.test(d))
+    return "Couldn't start a session — you may need to sign in again, then retry.";
+  if (/SDP|realtime|openai/i.test(d))
+    return "Couldn't reach the voice service. Check your connection and try again.";
+  if (/network|failed to fetch|load failed/i.test(d))
+    return "Network problem reaching the co-pilot. Check your connection and try again.";
+  return "The co-pilot couldn't connect. Try again in a moment.";
+}
+
+// Shared brutalist button recipe (border-2 + hard offset shadow + lift on hover).
+const BTN_LIFT =
+  "transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-neutral-900";
+const BTN_PRIMARY =
+  `inline-flex items-center gap-1.5 rounded-xl border-2 border-black bg-indigo-600 px-3 py-1.5 text-sm font-bold text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] focus-visible:ring-indigo-500 ${BTN_LIFT}`;
+const BTN_SECONDARY =
+  `inline-flex items-center gap-1.5 rounded-xl border-2 border-neutral-300 bg-neutral-100 px-3 py-1.5 text-sm font-bold text-neutral-700 hover:bg-neutral-200 focus-visible:ring-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700 ${BTN_LIFT}`;
 
 export function CopilotPanel({ runTool }: { runTool: RunTool }) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<CopilotState>("idle");
+  const [errorDetail, setErrorDetail] = useState<string | undefined>();
+  const [micAvailable, setMicAvailable] = useState(true);
   const [log, setLog] = useState<string[]>([]);
   const [text, setText] = useState("");
   const [dev, setDev] = useState(false);
@@ -34,6 +66,9 @@ export function CopilotPanel({ runTool }: { runTool: RunTool }) {
   const [talking, setTalking] = useState(false);
   const [micMode, setMicMode] = useState<"ptt" | "open">("ptt");
   const rtRef = useRef<RealtimeCopilot | null>(null);
+  const fabRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const wasOpen = useRef(false);
 
   const pushLog = (line: string) => setLog((l) => [line, ...l].slice(0, 14));
   const micOn = () => {
@@ -47,19 +82,27 @@ export function CopilotPanel({ runTool }: { runTool: RunTool }) {
 
   useEffect(() => () => rtRef.current?.disconnect(), []);
 
+  // Move focus into the panel when it opens, and back to the launcher when it closes,
+  // so keyboard/screen-reader users aren't stranded.
+  useEffect(() => {
+    if (open) panelRef.current?.focus();
+    else if (wasOpen.current) fabRef.current?.focus();
+    wasOpen.current = open;
+  }, [open]);
+
   // Keyboard push-to-talk: hold ` (Backquote) to talk. Captured before Excalidraw's
   // own key handlers, and ignored while typing in an input/textarea so the text box
   // and canvas shortcuts keep working.
   // Open-mic mode: keep the mic continuously on (Realtime server-VAD detects turns).
   // PTT mode: mic stays muted until a key/button is held.
   useEffect(() => {
-    if (state !== "live") return;
+    if (state !== "live" || !micAvailable) return;
     if (micMode === "open") micOn();
     else micOff();
-  }, [micMode, state]);
+  }, [micMode, state, micAvailable]);
 
   useEffect(() => {
-    if (state !== "live" || micMode !== "ptt") return;
+    if (state !== "live" || micMode !== "ptt" || !micAvailable) return;
     const isTyping = () => {
       const el = document.activeElement as HTMLElement | null;
       return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
@@ -83,22 +126,31 @@ export function CopilotPanel({ runTool }: { runTool: RunTool }) {
       window.removeEventListener("keyup", up, true);
       micOff();
     };
-  }, [state, micMode]);
+  }, [state, micMode, micAvailable]);
 
   const start = async () => {
-    if (rtRef.current) return;
+    if (state === "connecting" || state === "live") return;
+    // Dispose any stale instance (e.g. one left over from a prior error) so retry works.
+    rtRef.current?.disconnect();
+    rtRef.current = null;
+    setErrorDetail(undefined);
+    setMicAvailable(true);
     const rt = new RealtimeCopilot({
       toolSchemas: realtimeToolSchemas(),
       runTool: async (name, args) => {
         const r = await runTool(name, args);
-        pushLog(`✓ ${name}: ${r}`);
+        pushLog(`tool · ${name}: ${r}`);
         return r;
       },
       onState: (s, detail) => {
         setState(s);
+        setErrorDetail(s === "error" ? detail : undefined);
         if (detail) pushLog(`${s}: ${detail}`);
       },
-      onEvent: (label) => pushLog(label),
+      onEvent: (label) => {
+        if (label.startsWith("no mic")) setMicAvailable(false);
+        pushLog(label);
+      },
     });
     rtRef.current = rt;
     await rt.connect();
@@ -108,12 +160,18 @@ export function CopilotPanel({ runTool }: { runTool: RunTool }) {
     rtRef.current?.disconnect();
     rtRef.current = null;
     setState("idle");
+    setErrorDetail(undefined);
+  };
+
+  const retry = async () => {
+    stop();
+    await start();
   };
 
   const sendText = () => {
     const t = text.trim();
     if (!t || !rtRef.current || state !== "live") return;
-    pushLog(`🗣 ${t}`);
+    pushLog(`you: ${t}`);
     rtRef.current.sendText(t);
     setText("");
   };
@@ -122,82 +180,178 @@ export function CopilotPanel({ runTool }: { runTool: RunTool }) {
     try {
       const parsed = JSON.parse(toolInput);
       const r = await runTool(parsed.tool, parsed.args ?? {});
-      pushLog(`✓ ${parsed.tool}: ${r}`);
+      pushLog(`tool · ${parsed.tool}: ${r}`);
     } catch (e: any) {
-      pushLog(`⚠ ${e?.message || "invalid JSON"}`);
+      pushLog(`error: ${e?.message || "invalid JSON"}`);
     }
   };
 
   if (!open) {
     return (
       <button
+        ref={fabRef}
+        type="button"
         onClick={() => setOpen(true)}
-        title="Co-pilot"
-        className="fixed bottom-4 right-4 z-50 rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-lg hover:bg-indigo-500"
+        title="Open co-pilot"
+        aria-label="Open co-pilot"
+        className={`fixed bottom-4 right-4 z-50 ${BTN_PRIMARY} px-4 py-2 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] active:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]`}
         data-testid="copilot-open"
       >
-        🤖 Co-pilot
+        <Bot size={16} /> Co-pilot
       </button>
     );
   }
 
   const live = state === "live";
+  const meta = STATE_META[state];
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-96 rounded-xl border border-gray-200 bg-white p-3 shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
+    <div
+      ref={panelRef}
+      tabIndex={-1}
+      role="dialog"
+      aria-label="Co-pilot"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          setOpen(false);
+        }
+      }}
+      className="fixed bottom-4 right-4 z-50 w-[min(24rem,calc(100vw-2rem))] rounded-2xl border-2 border-black bg-white p-3 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] animate-in fade-in zoom-in-95 duration-200 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,0.06)]"
+    >
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-          🤖 Co-pilot <span className={`ml-1 text-xs ${STATE_COLOR[state]}`}>{STATE_LABEL[state]}</span>
+        <span className="inline-flex items-center gap-1.5 text-sm font-bold text-neutral-900 dark:text-neutral-100">
+          <Bot size={16} className="text-indigo-600 dark:text-indigo-400" /> Co-pilot
+          <span
+            role="status"
+            aria-live="polite"
+            className="ml-1 inline-flex items-center gap-1 text-xs font-bold text-neutral-500 dark:text-neutral-400"
+          >
+            <span className={`h-2 w-2 rounded-full ${meta.dot}`} />
+            {meta.label}
+          </span>
         </span>
-        <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-600" aria-label="Close">
-          ✕
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="rounded-lg border-2 border-transparent p-1 text-neutral-400 transition-all hover:border-black hover:text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:border-neutral-600 dark:hover:text-white"
+          aria-label="Close co-pilot"
+        >
+          <X size={18} />
         </button>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {state === "idle" || state === "error" ? (
-          <button
-            onClick={start}
-            data-testid="copilot-start"
-            className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
-          >
+          <button type="button" onClick={start} data-testid="copilot-start" className={BTN_PRIMARY}>
             Start co-pilot
           </button>
         ) : (
-          <button onClick={stop} data-testid="copilot-stop" className="rounded-md bg-gray-200 px-3 py-1.5 text-sm font-medium text-gray-800 hover:bg-gray-300 dark:bg-neutral-700 dark:text-gray-100">
-            Stop
+          <button type="button" onClick={stop} data-testid="copilot-stop" className={BTN_SECONDARY}>
+            {state === "connecting" ? "Cancel" : "Stop"}
           </button>
         )}
-        {live && micMode === "ptt" && (
+        {live && micAvailable && micMode === "ptt" && (
           <button
-            onMouseDown={micOn}
-            onMouseUp={micOff}
-            onMouseLeave={micOff}
+            type="button"
+            onPointerDown={(e) => {
+              e.currentTarget.setPointerCapture?.(e.pointerId);
+              micOn();
+            }}
+            onPointerUp={micOff}
+            onPointerLeave={micOff}
+            onPointerCancel={micOff}
+            onKeyDown={(e) => {
+              if ((e.key === " " || e.key === "Enter") && !e.repeat) {
+                e.preventDefault();
+                micOn();
+              }
+            }}
+            onKeyUp={(e) => {
+              if (e.key === " " || e.key === "Enter") {
+                e.preventDefault();
+                micOff();
+              }
+            }}
+            aria-pressed={talking}
+            aria-label="Hold to talk"
             data-testid="copilot-ptt"
-            className={`select-none rounded-md px-3 py-1.5 text-sm font-medium text-white ${talking ? "bg-emerald-700" : "bg-emerald-600 hover:bg-emerald-500"}`}
             title="Hold to talk (or hold the ` key)"
+            className={`inline-flex select-none items-center gap-1.5 rounded-xl border-2 border-black px-3 py-1.5 text-sm font-bold text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-neutral-900 ${
+              talking
+                ? "bg-emerald-700"
+                : "bg-emerald-600 hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-y-0"
+            }`}
           >
-            {talking ? "🔴 talking…" : "🎙 Hold to talk"}
+            {talking ? (
+              <>
+                <span className="h-2 w-2 rounded-full bg-white motion-safe:animate-pulse" /> Talking…
+              </>
+            ) : (
+              <>
+                <Mic size={15} /> Hold to talk
+              </>
+            )}
           </button>
         )}
-        {live && micMode === "open" && (
-          <span className="select-none rounded-md bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" data-testid="copilot-listening">
-            🔴 listening
+        {live && micAvailable && micMode === "open" && (
+          <span
+            className="inline-flex select-none items-center gap-1.5 rounded-xl border-2 border-emerald-600 bg-emerald-50 px-3 py-1.5 text-sm font-bold text-emerald-700 dark:border-emerald-500 dark:bg-emerald-950 dark:text-emerald-300"
+            data-testid="copilot-listening"
+          >
+            <span className="h-2 w-2 rounded-full bg-emerald-500 motion-safe:animate-pulse" /> Listening
           </span>
         )}
-        {live && (
+        {live && micAvailable && (
           <button
+            type="button"
             onClick={() => setMicMode((m) => (m === "ptt" ? "open" : "ptt"))}
             data-testid="copilot-micmode"
-            className="ml-auto rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-neutral-600 dark:text-gray-300 dark:hover:bg-neutral-800"
+            className="ml-auto inline-flex items-center gap-1 rounded-lg border-2 border-neutral-300 px-2 py-1.5 text-xs font-bold text-neutral-600 transition-all hover:border-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-neutral-700 dark:text-neutral-300 dark:hover:border-neutral-500"
             title="Switch between hold-to-talk and always-listening"
           >
-            {micMode === "ptt" ? "🎙 push-to-talk" : "📡 open mic"}
+            {micMode === "ptt" ? (
+              <>
+                <Mic size={13} /> Push-to-talk
+              </>
+            ) : (
+              <>
+                <Radio size={13} /> Open mic
+              </>
+            )}
           </button>
         )}
       </div>
-      {live && micMode === "ptt" && (
-        <div className="mt-1 text-[11px] text-gray-400">Hold <kbd className="rounded border px-1">`</kbd> or the button to talk.</div>
+      {live && micAvailable && micMode === "ptt" && (
+        <p className="mt-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+          Hold <kbd className="rounded border-2 border-neutral-300 px-1 font-bold dark:border-neutral-600">`</kbd> or the button to talk.
+        </p>
+      )}
+
+      {live && !micAvailable && (
+        <div className="mt-2 flex items-center gap-2 rounded-xl border-2 border-neutral-200 bg-neutral-50 p-2 text-xs font-bold text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400">
+          <MicOff size={14} className="shrink-0" /> No microphone — type your request below.
+        </div>
+      )}
+
+      {state === "error" && (
+        <div
+          role="alert"
+          className="mt-2 flex items-start gap-2 rounded-xl border-2 border-rose-600 bg-rose-50 p-3 text-xs font-bold text-rose-600 dark:border-rose-500 dark:bg-rose-900/20 dark:text-rose-400"
+        >
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+          <div className="flex-1">
+            <p className="leading-relaxed">{friendlyError(errorDetail)}</p>
+            <button
+              type="button"
+              onClick={retry}
+              data-testid="copilot-retry"
+              className="mt-2 inline-flex items-center gap-1 rounded-lg border-2 border-rose-600 px-2 py-1 text-rose-700 transition-all hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 dark:border-rose-500 dark:text-rose-300 dark:hover:bg-rose-900/40"
+            >
+              <RotateCcw size={13} /> Try again
+            </button>
+          </div>
+        </div>
       )}
 
       {live && (
@@ -207,32 +361,55 @@ export function CopilotPanel({ runTool }: { runTool: RunTool }) {
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && sendText()}
             placeholder="Tell the co-pilot… (e.g. draw the auth flow)"
+            aria-label="Message the co-pilot"
             data-testid="copilot-text"
-            className="flex-1 rounded-md border border-gray-300 bg-gray-50 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-800 dark:text-gray-100"
+            className="flex-1 rounded-xl border-2 border-black bg-slate-50 px-3 py-1.5 text-sm font-bold text-slate-900 placeholder:font-medium placeholder:text-slate-400 transition-all focus:border-indigo-600 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-indigo-500"
           />
-          <button onClick={sendText} data-testid="copilot-send" className="rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm text-white hover:bg-indigo-500">
-            Send
+          <button type="button" onClick={sendText} data-testid="copilot-send" aria-label="Send message" className={BTN_PRIMARY}>
+            <Send size={15} /> Send
           </button>
         </div>
       )}
 
-      <div className="mt-2 max-h-40 overflow-auto rounded-md bg-gray-50 p-2 font-mono text-[11px] text-gray-700 dark:bg-neutral-800 dark:text-gray-300" data-testid="copilot-log">
-        {log.length === 0 ? <div className="text-gray-400">Start the co-pilot, then talk or type…</div> : log.map((line, i) => <div key={i}>{line}</div>)}
+      <div
+        role="log"
+        aria-live="polite"
+        aria-atomic="false"
+        aria-label="Co-pilot activity"
+        className="mt-2 max-h-40 overflow-auto rounded-xl border-2 border-neutral-200 bg-neutral-50 p-2 font-mono text-[11px] text-neutral-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+        data-testid="copilot-log"
+      >
+        {log.length === 0 ? (
+          <div className="font-sans font-medium text-neutral-500 dark:text-neutral-400">Start the co-pilot, then talk or type…</div>
+        ) : (
+          log.map((line, i) => <div key={i}>{line}</div>)
+        )}
       </div>
 
-      <button onClick={() => setDev((d) => !d)} className="mt-2 text-[11px] text-gray-400 hover:text-gray-600">
-        {dev ? "▾ hide dev tools" : "▸ dev tools"}
+      <button
+        type="button"
+        onClick={() => setDev((d) => !d)}
+        className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-neutral-500 transition-colors hover:text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-neutral-400 dark:hover:text-neutral-100"
+      >
+        {dev ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        <Wrench size={12} /> {dev ? "Hide dev tools" : "Dev tools"}
       </button>
       {dev && (
-        <div className="mt-1 flex items-center gap-2">
+        <div className="mt-1.5 flex items-center gap-2">
           <input
             value={toolInput}
             onChange={(e) => setToolInput(e.target.value)}
             spellCheck={false}
+            aria-label="Raw tool JSON"
             data-testid="copilot-input"
-            className="flex-1 rounded-md border border-gray-300 bg-gray-50 px-2 py-1.5 font-mono text-[11px] dark:border-neutral-600 dark:bg-neutral-800 dark:text-gray-100"
+            className="flex-1 rounded-xl border-2 border-neutral-300 bg-slate-50 px-2 py-1.5 font-mono text-[11px] text-slate-900 focus:border-indigo-600 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-indigo-500"
           />
-          <button onClick={runToolJson} data-testid="copilot-run" className="rounded-md bg-gray-700 px-2 py-1.5 text-xs text-white hover:bg-gray-600">
+          <button
+            type="button"
+            onClick={runToolJson}
+            data-testid="copilot-run"
+            className="inline-flex items-center rounded-lg border-2 border-black bg-neutral-800 px-2.5 py-1.5 text-xs font-bold text-white transition-all hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:bg-neutral-700"
+          >
             Run
           </button>
         </div>
