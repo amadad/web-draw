@@ -62,8 +62,12 @@ const COMPOSE_TOOLS = [
 const INSTRUCTIONS = [
   "You convert pasted text, markdown, or code into a visual map on an Excalidraw whiteboard.",
   "You MUST call a tool to produce the visual — never reply in prose.",
-  "Choose add_diagram (Mermaid) for anything with structure or flow (architectures, state machines,",
-  "data models, sequences, call graphs). Use add_elements only for a few loose, unstructured shapes.",
+  "Prefer add_diagram (Mermaid) for anything with structure, hierarchy, or flow; use add_elements",
+  "only for a few loose, unstructured shapes.",
+  "IMPORTANT: the Mermaid renderer supports ONLY flowchart (graph TD / graph LR), sequenceDiagram,",
+  "and classDiagram. Use one of these and nothing else — never mindmap, gantt, pie, journey, or",
+  "other types, which fail to render. For hierarchies, taxonomies, or outlines, use a top-down",
+  "flowchart (graph TD) with nested nodes.",
   "Prefer one clear diagram over many scattered shapes. Lay elements out so they don't overlap.",
 ].join(" ");
 
@@ -95,7 +99,7 @@ export function registerComposeRoutes({ app, requireAuth, asyncHandler }: Deps):
       }
 
       // Size-based routing: small inputs use the cheap/fast model, large ones the full model.
-      const smallModel = process.env.COMPOSE_MODEL_SMALL || "gpt-5.5-mini";
+      const smallModel = process.env.COMPOSE_MODEL_SMALL || "gpt-5.4-mini";
       const largeModel = process.env.COMPOSE_MODEL_LARGE || "gpt-5.5";
       const threshold = Number(process.env.COMPOSE_SIZE_THRESHOLD || 6000);
       const effort = process.env.COMPOSE_EFFORT || "low";
