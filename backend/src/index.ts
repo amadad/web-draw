@@ -27,6 +27,7 @@ import authRouter from "./auth";
 import { logAuditEvent } from "./utils/audit";
 import { registerDashboardRoutes } from "./routes/dashboard";
 import { registerRealtimeRoutes } from "./routes/realtime/session";
+import { registerComposeRoutes } from "./routes/copilot/compose";
 import { registerImportExportRoutes } from "./routes/importExport";
 import { registerSystemRoutes } from "./routes/system";
 import { prisma } from "./db/prisma";
@@ -632,6 +633,8 @@ registerDashboardRoutes(app, {
 });
 
 registerRealtimeRoutes({ app, requireAuth, asyncHandler });
+
+registerComposeRoutes({ app, requireAuth, asyncHandler });
 
 registerImportExportRoutes({
   app,

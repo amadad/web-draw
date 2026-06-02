@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Download, Loader2, ChevronUp, ChevronDown, Share2, History } from 'lucide-react';
+import { ArrowLeft, Download, Loader2, ChevronUp, ChevronDown, Share2, History, Bot } from 'lucide-react';
 import clsx from 'clsx';
 import {
   Excalidraw,
@@ -39,6 +39,7 @@ import { ShareModal } from '../components/ShareModal';
 import { HistoryPanel } from '../components/HistoryPanel';
 import { useCopilotTools } from '../copilot/useCopilotTools';
 import { CopilotPanel } from '../copilot/CopilotPanel';
+import { ComposePanel } from '../copilot/ComposePanel';
 
 const COPILOT_ENABLED = import.meta.env.VITE_COPILOT_ENABLED === 'true';
 
@@ -216,6 +217,8 @@ export const Editor: React.FC = () => {
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [langCode, setLangCode] = useState(getInitialLangCode);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const copilotToggleRef = useRef<HTMLButtonElement | null>(null);
   const previewBackup = useRef<{ elements: readonly any[]; appState: any; files: any } | null>(null);
   const { isHeaderVisible, setIsHeaderVisible } = useEditorChrome({
     drawingName,
@@ -1721,6 +1724,11 @@ export const Editor: React.FC = () => {
   // Co-pilot tool layer (no-op render unless VITE_COPILOT_ENABLED). Hook is always
   // called to respect the rules of hooks; only the panel render is gated.
   const { runTool: copilotRunTool } = useCopilotTools(excalidrawAPI, { canEdit });
+  // Closing returns focus to the nav toggle that opened the panel (a11y).
+  const closeCopilot = useCallback(() => {
+    setCopilotOpen(false);
+    copilotToggleRef.current?.focus();
+  }, []);
 
   return (
     <div className="h-screen flex flex-col bg-white dark:bg-neutral-950 overflow-hidden">
@@ -1809,6 +1817,23 @@ export const Editor: React.FC = () => {
           >
             {autoHideEnabled ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
           </button>
+          {COPILOT_ENABLED && canEdit ? (
+            <button
+              ref={copilotToggleRef}
+              onClick={() => setCopilotOpen((o) => !o)}
+              className={`p-2 rounded-lg transition-colors ${
+                copilotOpen
+                  ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300"
+                  : "hover:bg-gray-100 dark:hover:bg-neutral-800 text-gray-600 dark:text-gray-300"
+              }`}
+              title="Voice co-pilot"
+              aria-label="Voice co-pilot"
+              aria-pressed={copilotOpen}
+              data-testid="copilot-toggle"
+            >
+              <Bot size={20} />
+            </button>
+          ) : null}
 
           <div className="h-6 w-px bg-gray-300 dark:bg-gray-700" />
 
@@ -1987,7 +2012,12 @@ export const Editor: React.FC = () => {
               window.location.reload();
             }}
           />
-          {COPILOT_ENABLED && canEdit ? <CopilotPanel runTool={copilotRunTool} /> : null}
+          {COPILOT_ENABLED && canEdit ? (
+            <>
+              <CopilotPanel runTool={copilotRunTool} open={copilotOpen} onClose={closeCopilot} />
+              <ComposePanel runTool={copilotRunTool} />
+            </>
+          ) : null}
         </>
       ) : null}
     </div>

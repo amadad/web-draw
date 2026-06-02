@@ -144,8 +144,9 @@ Understand runtime first, then touch code with local tests if requested.
 
 - `backend/`: Express API, Prisma schema, auth, sockets, scripts, Docker runtime.
   - `backend/src/routes/realtime/session.ts`: mints ephemeral OpenAI Realtime client secrets for the voice co-pilot.
+  - `backend/src/routes/copilot/compose.ts`: `POST /copilot/compose` — reasons over pasted markdown/code with a size-routed GPT-5.5 model and returns canvas tool calls. Owns its tool contract server-side (browser sends only `{ text }`).
 - `frontend/`: React UI, API client wiring, Vite config/build pipeline.
-  - `frontend/src/copilot/`: voice co-pilot — `tools.ts` (Excalidraw tool registry), `useCopilotTools.ts` (dispatcher), `webmcp.ts` (WebMCP adapter), `realtime.ts` (gpt-realtime-2 WebRTC client), `CopilotPanel.tsx` (UI). Gated by `VITE_COPILOT_ENABLED`.
+  - `frontend/src/copilot/`: co-pilot — `tools.ts` (Excalidraw tool registry), `useCopilotTools.ts` (dispatcher), `webmcp.ts` (WebMCP adapter), `realtime.ts` (gpt-realtime-2 WebRTC client), `CopilotPanel.tsx` (voice UI, opened from the top-nav toggle), `compose.ts` + `ComposePanel.tsx` (Compose: paste-to-canvas, the bottom-right FAB), `styles.ts` (shared button recipes). Gated by `VITE_COPILOT_ENABLED`.
 - `e2e/`: Playwright tests and compose-based test runner.
 - `docker-compose.yml`: local compose setup for source builds.
 - `docker-compose.prod.yml`: production-style compose using published images.
@@ -254,19 +255,23 @@ Backend Docker/env control variables:
 - `MIGRATION_LOCK_TIMEOUT_SECONDS` (default `120`)
 - `JWT_SECRET` and `CSRF_SECRET` persistence support (`.jwt_secret`, `.csrf_secret` in volume)
 
-Voice co-pilot (backend, all optional — endpoint returns 503 if `OPENAI_API_KEY` is unset):
+Co-pilot (backend, all optional — endpoints return 503 if `OPENAI_API_KEY` is unset):
 
-- `OPENAI_API_KEY` (server-side only; used to mint Realtime ephemeral secrets — never sent to the browser)
+- `OPENAI_API_KEY` (server-side only; mints Realtime ephemeral secrets and powers Compose — never sent to the browser)
 - `REALTIME_MODEL` (default `gpt-realtime-2`)
 - `REALTIME_VOICE` (default `marin`)
 - `REALTIME_EFFORT` (reasoning effort, default `low`; raise for heavier design sessions)
+- `COMPOSE_MODEL_SMALL` (Compose model for small inputs, default `gpt-5.5-mini`)
+- `COMPOSE_MODEL_LARGE` (Compose model for inputs over the threshold, default `gpt-5.5`)
+- `COMPOSE_SIZE_THRESHOLD` (char count that routes to the large model, default `6000`)
+- `COMPOSE_EFFORT` (Compose reasoning effort, default `low`)
 
 Frontend variables:
 
 - `VITE_API_URL` (default `/api`)
 - `VITE_APP_VERSION` (from build-time metadata)
 - `VITE_APP_BUILD_LABEL` (build metadata label)
-- `VITE_COPILOT_ENABLED` (build arg/env; `"true"` mounts the voice co-pilot panel — baked at Vite build time)
+- `VITE_COPILOT_ENABLED` (build arg/env; `"true"` mounts the co-pilot surfaces — the nav voice toggle and the Compose panel — baked at Vite build time)
 - `BACKEND_URL` (frontend container entrypoint only; default `backend:8000`, injected into nginx template)
 
 E2E variables:
@@ -291,7 +296,7 @@ E2E variables:
 - `DEBUG_CSRF`: log CSRF debug output for troubleshooting.
 - `BOOTSTRAP_SETUP_CODE_TTL_MS`: bootstrap setup code expiry.
 - `BOOTSTRAP_SETUP_CODE_MAX_ATTEMPTS`: max bootstrap attempts before code refresh.
-- `VITE_COPILOT_ENABLED`: build-time flag that mounts the voice co-pilot panel in the editor (default off). Requires `OPENAI_API_KEY` on the backend to function.
+- `VITE_COPILOT_ENABLED`: build-time flag that mounts the co-pilot surfaces in the editor — the top-nav voice toggle and the Compose paste-to-canvas panel (default off). Requires `OPENAI_API_KEY` on the backend to function.
 
 ## Reverse proxy / Kubernetes notes
 
@@ -321,7 +326,7 @@ Frontend architecture notes:
 - `frontend/src/pages/` contains route-level features.
 - `frontend/src/context/` contains auth/theme state.
 - `frontend/src/pages/Editor.tsx` wires Socket.IO and live collaboration.
-- `frontend/src/copilot/CopilotPanel.tsx` (the only hand-built co-pilot UI) follows the app's neo-brutalist convention: `border-2`/black borders + hard offset shadows (`shadow-[Npx_Npx_0px_0px_rgba(0,0,0,1)]`), lucide icons (no emoji), `neutral`/`slate`/`indigo` ramp. It is an accessible surface (`aria-live` log, keyboard push-to-talk via `` ` ``, focus management, error card with retry) — keep these tokens and affordances when editing.
+- `frontend/src/copilot/CopilotPanel.tsx` and `ComposePanel.tsx` (the hand-built co-pilot UIs, sharing button recipes from `styles.ts`) follow the app's neo-brutalist convention: `border-2`/black borders + hard offset shadows (`shadow-[Npx_Npx_0px_0px_rgba(0,0,0,1)]`), lucide icons (no emoji), `neutral`/`slate`/`indigo` ramp. They are accessible surfaces (`aria-live` log, keyboard push-to-talk via `` ` `` / ⌘-Enter to compose, focus management, error cards) — keep these tokens and affordances when editing.
 - `frontend/vite.config.ts` sets Vite proxy to backend in local dev and compile-time app metadata.
 - Production serving and backend proxy are handled by `frontend/Dockerfile`, `frontend/nginx.conf.template`, `frontend/docker-entrypoint.sh`.
 

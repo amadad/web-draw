@@ -1,6 +1,7 @@
 // Co-pilot panel: voice (push-to-talk) + text-to-agent + a raw tool-runner for debugging.
 // Voice/text drive the gpt-realtime-2 session; the session calls our canvas tools.
-// Styled to match the app's neo-brutalist system (border-2 / hard offset shadows / lucide icons).
+// Open/close is owned by the Editor (toggled from the top nav); this component renders
+// nothing when closed. Styled to match the app's neo-brutalist system.
 import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -18,6 +19,7 @@ import {
 import type { RunTool } from "./useCopilotTools";
 import { RealtimeCopilot, type CopilotState } from "./realtime";
 import { realtimeToolSchemas } from "./tools";
+import { BTN_PRIMARY, BTN_SECONDARY } from "./styles";
 
 const TOOL_EXAMPLES = [
   '{"tool":"add_elements","args":{"skeletons":[{"type":"rectangle","x":100,"y":100,"width":160,"height":80,"label":{"text":"API"}}]}}',
@@ -46,16 +48,15 @@ function friendlyError(detail?: string): string {
   return "The co-pilot couldn't connect. Try again in a moment.";
 }
 
-// Shared brutalist button recipe (border-2 + hard offset shadow + lift on hover).
-const BTN_LIFT =
-  "transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-neutral-900";
-const BTN_PRIMARY =
-  `inline-flex items-center gap-1.5 rounded-xl border-2 border-black bg-indigo-600 px-3 py-1.5 text-sm font-bold text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] focus-visible:ring-indigo-500 ${BTN_LIFT}`;
-const BTN_SECONDARY =
-  `inline-flex items-center gap-1.5 rounded-xl border-2 border-neutral-300 bg-neutral-100 px-3 py-1.5 text-sm font-bold text-neutral-700 hover:bg-neutral-200 focus-visible:ring-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700 ${BTN_LIFT}`;
-
-export function CopilotPanel({ runTool }: { runTool: RunTool }) {
-  const [open, setOpen] = useState(false);
+export function CopilotPanel({
+  runTool,
+  open,
+  onClose,
+}: {
+  runTool: RunTool;
+  open: boolean;
+  onClose: () => void;
+}) {
   const [state, setState] = useState<CopilotState>("idle");
   const [errorDetail, setErrorDetail] = useState<string | undefined>();
   const [micAvailable, setMicAvailable] = useState(true);
@@ -66,9 +67,7 @@ export function CopilotPanel({ runTool }: { runTool: RunTool }) {
   const [talking, setTalking] = useState(false);
   const [micMode, setMicMode] = useState<"ptt" | "open">("ptt");
   const rtRef = useRef<RealtimeCopilot | null>(null);
-  const fabRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const wasOpen = useRef(false);
 
   const pushLog = (line: string) => setLog((l) => [line, ...l].slice(0, 14));
   const micOn = () => {
@@ -82,12 +81,10 @@ export function CopilotPanel({ runTool }: { runTool: RunTool }) {
 
   useEffect(() => () => rtRef.current?.disconnect(), []);
 
-  // Move focus into the panel when it opens, and back to the launcher when it closes,
-  // so keyboard/screen-reader users aren't stranded.
+  // Move focus into the panel when it opens so keyboard/screen-reader users land here.
+  // Focus return on close is handled by the Editor (it owns the nav toggle that opened us).
   useEffect(() => {
     if (open) panelRef.current?.focus();
-    else if (wasOpen.current) fabRef.current?.focus();
-    wasOpen.current = open;
   }, [open]);
 
   // Keyboard push-to-talk: hold ` (Backquote) to talk. Captured before Excalidraw's
@@ -186,21 +183,7 @@ export function CopilotPanel({ runTool }: { runTool: RunTool }) {
     }
   };
 
-  if (!open) {
-    return (
-      <button
-        ref={fabRef}
-        type="button"
-        onClick={() => setOpen(true)}
-        title="Open co-pilot"
-        aria-label="Open co-pilot"
-        className={`fixed bottom-4 right-4 z-50 ${BTN_PRIMARY} px-4 py-2 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] active:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]`}
-        data-testid="copilot-open"
-      >
-        <Bot size={16} /> Co-pilot
-      </button>
-    );
-  }
+  if (!open) return null;
 
   const live = state === "live";
   const meta = STATE_META[state];
@@ -214,7 +197,7 @@ export function CopilotPanel({ runTool }: { runTool: RunTool }) {
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.stopPropagation();
-          setOpen(false);
+          onClose();
         }
       }}
       className="fixed bottom-4 right-4 z-50 w-[min(24rem,calc(100vw-2rem))] rounded-2xl border-2 border-black bg-white p-3 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] animate-in fade-in zoom-in-95 duration-200 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,0.06)]"
@@ -233,7 +216,7 @@ export function CopilotPanel({ runTool }: { runTool: RunTool }) {
         </span>
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={onClose}
           className="rounded-lg border-2 border-transparent p-1 text-neutral-400 transition-all hover:border-black hover:text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:border-neutral-600 dark:hover:text-white"
           aria-label="Close co-pilot"
         >
