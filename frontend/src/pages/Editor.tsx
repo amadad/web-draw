@@ -218,6 +218,7 @@ export const Editor: React.FC = () => {
   const [langCode, setLangCode] = useState(getInitialLangCode);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [copilotOpen, setCopilotOpen] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
   const copilotToggleRef = useRef<HTMLButtonElement | null>(null);
   const previewBackup = useRef<{ elements: readonly any[]; appState: any; files: any } | null>(null);
   const { isHeaderVisible, setIsHeaderVisible } = useEditorChrome({
@@ -1724,10 +1725,19 @@ export const Editor: React.FC = () => {
   // Co-pilot tool layer (no-op render unless VITE_COPILOT_ENABLED). Hook is always
   // called to respect the rules of hooks; only the panel render is gated.
   const { runTool: copilotRunTool } = useCopilotTools(excalidrawAPI, { canEdit });
-  // Closing returns focus to the nav toggle that opened the panel (a11y).
+  // Voice and Compose share the bottom-right slot, so opening one closes the other.
+  // Closing the voice panel returns focus to the nav toggle that opened it (a11y).
+  const openCopilot = useCallback(() => {
+    setComposeOpen(false);
+    setCopilotOpen(true);
+  }, []);
   const closeCopilot = useCallback(() => {
     setCopilotOpen(false);
     copilotToggleRef.current?.focus();
+  }, []);
+  const onComposeOpenChange = useCallback((next: boolean) => {
+    if (next) setCopilotOpen(false);
+    setComposeOpen(next);
   }, []);
 
   return (
@@ -1820,7 +1830,7 @@ export const Editor: React.FC = () => {
           {COPILOT_ENABLED && canEdit ? (
             <button
               ref={copilotToggleRef}
-              onClick={() => setCopilotOpen((o) => !o)}
+              onClick={() => (copilotOpen ? closeCopilot() : openCopilot())}
               className={`p-2 rounded-lg transition-colors ${
                 copilotOpen
                   ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300"
@@ -2015,7 +2025,11 @@ export const Editor: React.FC = () => {
           {COPILOT_ENABLED && canEdit ? (
             <>
               <CopilotPanel runTool={copilotRunTool} open={copilotOpen} onClose={closeCopilot} />
-              <ComposePanel runTool={copilotRunTool} />
+              {/* Voice owns the bottom-right slot while open; keep Compose unmounted so its
+                  launcher FAB never overlaps the voice panel. */}
+              {copilotOpen ? null : (
+                <ComposePanel runTool={copilotRunTool} open={composeOpen} onOpenChange={onComposeOpenChange} />
+              )}
             </>
           ) : null}
         </>

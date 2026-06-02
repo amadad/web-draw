@@ -10,8 +10,15 @@ import { BTN_PRIMARY } from "./styles";
 
 type Status = "idle" | "working" | "error";
 
-export function ComposePanel({ runTool }: { runTool: RunTool }) {
-  const [open, setOpen] = useState(false);
+export function ComposePanel({
+  runTool,
+  open,
+  onOpenChange,
+}: {
+  runTool: RunTool;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const [status, setStatus] = useState<Status>("idle");
   const [text, setText] = useState("");
   const [log, setLog] = useState<string[]>([]);
@@ -57,7 +64,7 @@ export function ComposePanel({ runTool }: { runTool: RunTool }) {
       <button
         ref={fabRef}
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => onOpenChange(true)}
         title="Compose — paste markdown or code to map it onto the canvas"
         aria-label="Open Compose"
         className={`fixed bottom-4 right-4 z-50 ${BTN_PRIMARY} px-4 py-2 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] active:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]`}
@@ -79,7 +86,7 @@ export function ComposePanel({ runTool }: { runTool: RunTool }) {
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.stopPropagation();
-          setOpen(false);
+          onOpenChange(false);
         }
       }}
       className="fixed bottom-4 right-4 z-50 w-[min(26rem,calc(100vw-2rem))] rounded-2xl border-2 border-black bg-white p-3 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] animate-in fade-in zoom-in-95 duration-200 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,0.06)]"
@@ -90,7 +97,7 @@ export function ComposePanel({ runTool }: { runTool: RunTool }) {
         </span>
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={() => onOpenChange(false)}
           className="rounded-lg border-2 border-transparent p-1 text-neutral-400 transition-all hover:border-black hover:text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:border-neutral-600 dark:hover:text-white"
           aria-label="Close Compose"
         >
