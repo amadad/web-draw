@@ -68,6 +68,13 @@ const INSTRUCTIONS = [
   "and classDiagram. Use one of these and nothing else — never mindmap, gantt, pie, journey, or",
   "other types, which fail to render. For hierarchies, taxonomies, or outlines, use a top-down",
   "flowchart (graph TD) with nested nodes.",
+  "LAYOUT — build depth, not breadth, so the diagram doesn't sprawl wide and shallow. In a flowchart",
+  "each level becomes one row, so a parent with many direct children renders as one very wide row.",
+  "Put at most ~5 sibling nodes under any single parent; when there are more, add intermediate",
+  "grouping nodes so the tree gains levels instead of one long row. Aim for 3–5 levels of depth, and",
+  "cluster related nodes into `subgraph` blocks (they lay out compactly in 2D rather than a single",
+  "row). Choose direction by content: `graph LR` for sequential processes/pipelines, `graph TD` for",
+  "hierarchies and taxonomies.",
   "Prefer one clear diagram over many scattered shapes. Lay elements out so they don't overlap.",
 ].join(" ");
 
