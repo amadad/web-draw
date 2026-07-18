@@ -495,6 +495,12 @@ cd backend
 npm run admin:recover -- --identifier admin@example.com --generate --activate --must-reset
 ```
 
+> **Docker production deployment:** the command above defaults to the checkout's local
+> `backend/prisma/dev.db`; it does **not** target the running service's named volume.
+> For this deployment, run the recovery script in a one-off container with the production
+> database mounted and `DATABASE_URL=file:/app/prisma/dev.db`. Do not paste the generated
+> temporary password into shared chat or logs.
+
 Common flags:
 
 | Flag                          | Description                                              |
