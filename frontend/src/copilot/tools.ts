@@ -6,7 +6,12 @@
 // Editor's existing onChange wiring then broadcasts (socket) and autosaves (PUT).
 //
 // Pure module: no React. `api` is the ExcalidrawImperativeAPI handle.
-import { convertToExcalidrawElements } from "@excalidraw/excalidraw";
+import {
+  CaptureUpdateAction,
+  convertToExcalidrawElements,
+  getCommonBounds,
+  getVisibleSceneBounds,
+} from "@excalidraw/excalidraw";
 
 export type JSONSchema = Record<string, unknown>;
 
@@ -22,7 +27,11 @@ export type CopilotTool = {
 export type ExcalidrawApi = {
   getSceneElements: () => readonly any[];
   getSceneElementsIncludingDeleted: () => readonly any[];
-  updateScene: (scene: { elements?: readonly any[]; appState?: Record<string, unknown> }) => void;
+  updateScene: (scene: {
+    elements?: readonly any[];
+    appState?: Record<string, unknown>;
+    captureUpdate?: "IMMEDIATELY" | "EVENTUALLY" | "NEVER";
+  }) => void;
   scrollToContent: (target?: any, opts?: Record<string, unknown>) => void;
   getAppState: () => any;
 };
@@ -45,6 +54,98 @@ const summarizeElement = (el: any) => ({
 //   { type: "arrow", x, y, width, height, start: { id }, end: { id } }
 const skeletonsToElements = (skeletons: any[]) =>
   convertToExcalidrawElements(skeletons as any, { regenerateIds: true });
+
+const INSERTION_GAP = 120;
+const COLLISION_PADDING = 40;
+type Bounds = readonly [number, number, number, number];
+
+const boundsOverlap = (a: Bounds, b: Bounds) =>
+  a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
+
+const padBounds = (bounds: Bounds, padding: number): Bounds => [
+  bounds[0] - padding,
+  bounds[1] - padding,
+  bounds[2] + padding,
+  bounds[3] + padding,
+];
+
+const moveElementsTo = (elements: any[], bounds: Bounds, x: number, y: number) => {
+  const dx = x - bounds[0];
+  const dy = y - bounds[1];
+  return elements.map((element) => ({ ...element, x: element.x + dx, y: element.y + dy }));
+};
+
+// Generated coordinates describe the group's internal layout. Preserve them when
+// already open; otherwise anchor around the selection, then visible work, and use
+// the first collision-free side. Empty canvases start in the viewport center.
+const placeInOpenSpace = (created: any[], existing: readonly any[], appState: any) => {
+  if (created.length === 0) return created;
+
+  const createdBounds = getCommonBounds(created) as Bounds;
+  const createdWidth = createdBounds[2] - createdBounds[0];
+  const createdHeight = createdBounds[3] - createdBounds[1];
+  const viewportBounds = getVisibleSceneBounds(appState) as Bounds;
+
+  if (existing.length === 0) {
+    const x = (viewportBounds[0] + viewportBounds[2] - createdWidth) / 2;
+    const y = (viewportBounds[1] + viewportBounds[3] - createdHeight) / 2;
+    return moveElementsTo(created, createdBounds, x, y);
+  }
+
+  const elementBounds = existing.map((element) => getCommonBounds([element]) as Bounds);
+  if (!elementBounds.some((bounds) => boundsOverlap(createdBounds, bounds))) return created;
+
+  const selectedIds = appState?.selectedElementIds || {};
+  const selected = existing.filter((element) => selectedIds[element.id]);
+  const visible = existing.filter((_, index) => boundsOverlap(elementBounds[index], viewportBounds));
+  const anchorElements = selected.length > 0 ? selected : visible;
+  const anchorBounds =
+    anchorElements.length > 0
+      ? (getCommonBounds(anchorElements) as Bounds)
+      : viewportBounds;
+
+  const candidates: Array<readonly [number, number]> = [
+    [anchorBounds[2] + INSERTION_GAP, anchorBounds[1]],
+    [anchorBounds[0], anchorBounds[3] + INSERTION_GAP],
+    [anchorBounds[0] - INSERTION_GAP - createdWidth, anchorBounds[1]],
+    [anchorBounds[0], anchorBounds[1] - INSERTION_GAP - createdHeight],
+  ];
+
+  const collides = ([x, y]: readonly [number, number]) => {
+    const candidate = padBounds([x, y, x + createdWidth, y + createdHeight], COLLISION_PADDING);
+    return elementBounds.some((bounds) => boundsOverlap(candidate, bounds));
+  };
+
+  let origin = candidates.find((candidate) => !collides(candidate));
+  if (!origin) {
+    const sceneBounds = getCommonBounds(existing) as Bounds;
+    const fallbacks: Array<readonly [number, number]> = [
+      [sceneBounds[2] + INSERTION_GAP, anchorBounds[1]],
+      [anchorBounds[0], sceneBounds[3] + INSERTION_GAP],
+    ];
+    origin = fallbacks.find((candidate) => !collides(candidate)) || fallbacks[0];
+  }
+
+  return moveElementsTo(created, createdBounds, origin[0], origin[1]);
+};
+
+// One insertion seam owns collision avoidance, selection/focus, and undo capture
+// for every tool that adds a generated group.
+const insertCreatedElements = (api: ExcalidrawApi, created: any[]) => {
+  const placed = placeInOpenSpace(created, api.getSceneElements(), api.getAppState());
+  const existing = api.getSceneElementsIncludingDeleted();
+  const selectedElementIds: Record<string, true> = Object.fromEntries(
+    placed.map((element) => [element.id, true])
+  );
+
+  api.updateScene({
+    elements: [...existing, ...placed],
+    appState: { selectedElementIds },
+    captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+  });
+  api.scrollToContent(placed, { fitToContent: true, animate: true });
+  return placed;
+};
 
 // ---- tools ---------------------------------------------------------------
 
@@ -81,9 +182,7 @@ export const COPILOT_TOOLS: CopilotTool[] = [
     handler: (api, args) => {
       const skeletons = Array.isArray(args?.skeletons) ? args.skeletons : [];
       if (skeletons.length === 0) return "No skeletons provided.";
-      const created = skeletonsToElements(skeletons);
-      const existing = api.getSceneElementsIncludingDeleted();
-      api.updateScene({ elements: [...existing, ...created] });
+      const created = insertCreatedElements(api, skeletonsToElements(skeletons));
       return `Added ${created.length} element(s): ${created.map((e: any) => `${e.type}#${e.id.slice(0, 6)}`).join(", ")}`;
     },
   },
@@ -112,11 +211,10 @@ export const COPILOT_TOOLS: CopilotTool[] = [
       const dx = Number(args?.x) || 0;
       const dy = Number(args?.y) || 0;
       const shifted = created.map((e: any) => ({ ...e, x: e.x + dx, y: e.y + dy }));
-      const existing = api.getSceneElementsIncludingDeleted();
-      api.updateScene({ elements: [...existing, ...shifted] });
+      const placed = insertCreatedElements(api, shifted);
       // Mermaid may emit image files (e.g. for some node types); ignore if none.
       void files;
-      return `Rendered Mermaid diagram as ${shifted.length} element(s).`;
+      return `Rendered Mermaid diagram as ${placed.length} element(s).`;
     },
   },
   {
