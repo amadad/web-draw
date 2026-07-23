@@ -81,7 +81,7 @@ services:
 - Config source of truth: `backend/src/config.ts` (env + validation)
 - Entry server init: `backend/src/index.ts`
 - API client: `frontend/src/api/index.ts`
-- Realtime/editor behavior: `frontend/src/pages/Editor.tsx`
+- Realtime/editor behavior: `frontend/src/pages/Editor.tsx` orchestrates hooks in `frontend/src/pages/editor/`; `EditorView.tsx` owns the rendered editor UI
 - Deployment flow: `docker-compose*.yml`, `backend/Dockerfile`, `frontend/Dockerfile`, entrypoint scripts
 - Build/dev commands: `make build`, `npm test`, `make test-all`, `make test-e2e`
 - Development contributor flow:
@@ -146,7 +146,7 @@ Understand runtime first, then touch code with local tests if requested.
   - `backend/src/routes/realtime/session.ts`: mints ephemeral OpenAI Realtime client secrets for the voice co-pilot.
   - `backend/src/routes/copilot/compose.ts`: `POST /copilot/compose` — reasons over pasted markdown/code with a size-routed model (`gpt-5.4-mini` / `gpt-5.5`) and returns canvas tool calls. Owns its tool contract server-side (browser sends only `{ text }`). The prompt constrains Mermaid to flowchart/sequence/class — the only types `@excalidraw/mermaid-to-excalidraw` renders (mindmap/gantt/etc. throw in the `add_diagram` handler).
 - `frontend/`: React UI, API client wiring, Vite config/build pipeline.
-  - `frontend/src/copilot/`: co-pilot — `tools.ts` (Excalidraw tool registry), `useCopilotTools.ts` (dispatcher), `webmcp.ts` (WebMCP adapter), `realtime.ts` (gpt-realtime-2 WebRTC client), `CopilotPanel.tsx` (voice UI, opened from the top-nav toggle), `compose.ts` + `ComposePanel.tsx` (Compose: paste-to-canvas, the bottom-right FAB), `styles.ts` (shared button recipes). Both panels are controlled from `Editor.tsx` and share the bottom-right slot — opening one closes the other so they never overlap. Gated by `VITE_COPILOT_ENABLED`.
+  - `frontend/src/copilot/`: co-pilot — `tools.ts` (Excalidraw tool registry), `useCopilotTools.ts` (dispatcher), `webmcp.ts` (WebMCP adapter), `realtime.ts` (gpt-realtime-2 WebRTC client), `CopilotPanel.tsx` (voice UI, opened from the top-nav toggle), `compose.ts` + `ComposePanel.tsx` (Compose: paste-to-canvas, the bottom-right FAB), `styles.ts` (shared button recipes). `Editor.tsx` binds the dispatcher to the Excalidraw API; `editor/EditorView.tsx` owns both panels and their shared bottom-right slot, closing one before opening the other. Gated by `VITE_COPILOT_ENABLED`.
 - `e2e/`: Playwright tests and compose-based test runner.
 - `docker-compose.yml`: local compose setup for source builds.
 - `docker-compose.prod.yml`: production-style compose using published images.
@@ -326,7 +326,7 @@ Frontend architecture notes:
 - `frontend/src/api/index.ts` holds API client and auth/update endpoints.
 - `frontend/src/pages/` contains route-level features.
 - `frontend/src/context/` contains auth/theme state.
-- `frontend/src/pages/Editor.tsx` wires Socket.IO and live collaboration.
+- `frontend/src/pages/Editor.tsx` orchestrates editor state and extracted hooks; `frontend/src/pages/editor/useEditorCollaboration.ts` owns Socket.IO/live collaboration, and `EditorView.tsx` owns the rendered canvas/header surface.
 - `frontend/src/copilot/CopilotPanel.tsx` and `ComposePanel.tsx` (the hand-built co-pilot UIs, sharing button recipes from `styles.ts`) follow the app's neo-brutalist convention: `border-2`/black borders + hard offset shadows (`shadow-[Npx_Npx_0px_0px_rgba(0,0,0,1)]`), lucide icons (no emoji), `neutral`/`slate`/`indigo` ramp. They are accessible surfaces (`aria-live` log, keyboard push-to-talk via `` ` `` / ⌘-Enter to compose, focus management, error cards) — keep these tokens and affordances when editing.
 - `frontend/vite.config.ts` sets Vite proxy to backend in local dev and compile-time app metadata.
 - Production serving and backend proxy are handled by `frontend/Dockerfile`, `frontend/nginx.conf.template`, `frontend/docker-entrypoint.sh`.
