@@ -1,7 +1,4 @@
-// Co-pilot panel: voice (push-to-talk) + text-to-agent + a raw tool-runner for debugging.
-// Voice/text drive the gpt-realtime-2 session; the session calls our canvas tools.
-// Open/close is owned by the Editor (toggled from the top nav); this component renders
-// nothing when closed. Styled to match the app's neo-brutalist system.
+// Voice/text co-pilot plus a raw tool runner, toggled from the editor nav.
 import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,

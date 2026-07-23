@@ -2,16 +2,20 @@
 // single `runTool(name, args)` dispatcher. Also (best-effort) registers the tools
 // with WebMCP so an external MCP client can drive the same canvas. Returns the
 // dispatcher plus the Realtime tool schemas for the voice layer.
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect } from "react";
 import type { MutableRefObject } from "react";
-import { TOOLS_BY_NAME, realtimeToolSchemas, type ExcalidrawApi } from "./tools";
+import {
+  TOOLS_BY_NAME,
+  realtimeToolSchemas,
+  type ExcalidrawApi,
+} from "./tools";
 import { registerToolsWithWebMCP } from "./webmcp";
 
 export type RunTool = (name: string, args: unknown) => Promise<string>;
 
 export function useCopilotTools(
   excalidrawAPI: MutableRefObject<ExcalidrawApi | null>,
-  opts?: { canEdit?: boolean }
+  opts?: { canEdit?: boolean },
 ): { runTool: RunTool; toolSchemas: ReturnType<typeof realtimeToolSchemas> } {
   const canEdit = opts?.canEdit !== false;
 
@@ -21,7 +25,8 @@ export function useCopilotTools(
       if (!tool) return `Unknown tool: ${name}`;
       const api = excalidrawAPI.current;
       if (!api) return "Canvas not ready yet.";
-      if (!canEdit && name !== "get_scene") return "Read-only access: cannot edit this drawing.";
+      if (!canEdit && name !== "get_scene")
+        return "Read-only access: cannot edit this drawing.";
       try {
         return await tool.handler(api, args ?? {});
       } catch (err: any) {
@@ -29,17 +34,10 @@ export function useCopilotTools(
         return `Tool ${name} failed: ${err?.message || String(err)}`;
       }
     },
-    [excalidrawAPI, canEdit]
+    [excalidrawAPI, canEdit],
   );
 
-  // Keep a stable ref so WebMCP handlers always call the latest dispatcher.
-  const runToolRef = useRef(runTool);
-  runToolRef.current = runTool;
-
-  useEffect(() => {
-    const cleanup = registerToolsWithWebMCP((name, args) => runToolRef.current(name, args));
-    return cleanup;
-  }, []);
+  useEffect(() => registerToolsWithWebMCP(runTool), [runTool]);
 
   return { runTool, toolSchemas: realtimeToolSchemas() };
 }

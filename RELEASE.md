@@ -1,11 +1,13 @@
-Release date: 2026-04-17
+# ExcaliDash v0.5.1
 
-| Area | Key Changes |
-|------|-------------|
-| **OIDC hardening** | ID token signing alg resolution with discovery fallback + explicit override (`OIDC_ID_TOKEN_SIGNED_RESPONSE_ALG`), token endpoint auth method override (`OIDC_TOKEN_ENDPOINT_AUTH_METHOD`), HS-alg mismatch auto-retry in callback, Keycloak/Authentik preflight warnings, `oidc-doctor.cjs` diagnostic tool, provider-specific `.env` example files |
-| **Admin OIDC controls** | Runtime JIT provisioning toggle via admin panel + DB (`oidcJitProvisioningEnabled` column + migration), OIDC-only invited user creation (`oidcOnly` flag), block self-registration toggle in `oidc_enforced` mode |
-| **HTTPS redirect policy** | Refactored into pure `httpsRedirectPolicy.ts` module, new `ENFORCE_HTTPS_REDIRECT` env var, mixed http/https `FRONTEND_URL` support, IPv4 loopback healthchecks |
-| **Frontend resilience** | `AuthStatusErrorPanel` with retry for backend connectivity failures, `registrationEnabled` propagation to hide register link/route, multi-image drag-and-drop import in Editor, Excalidraw asset copy script for dev + build |
+Release date: 2026-06-21
+
+## Key changes
+
+- Add runtime-selectable Prisma provider support for SQLite and PostgreSQL deployments.
+- Add provider-specific migration handling for Docker startup and local Prisma workflows.
+- Add PostgreSQL compose/test coverage and health-check coverage for containerized deployments.
+- Preserve SQLite as the default deployment path while allowing `DATABASE_PROVIDER=postgresql`.
 
 ## Upgrading
 
@@ -14,8 +16,9 @@ Release date: 2026-04-17
 
 ### Data safety checklist
 
-- Back up backend volume (`dev.db`, secrets) before upgrading.
+- Back up the backend volume (`dev.db`, secrets, uploads, and S3 bucket data) before upgrading.
 - Let migrations run on startup (`RUN_MIGRATIONS=true`) for normal deploys.
+- If S3 is enabled, verify that existing object keys follow the canonical layout `{prefix}/{userId}/{drawingId}/{fileId}.{ext}`.
 - Run `docker compose -f docker-compose.prod.yml logs backend --tail=200` after rollout and verify startup/migration status.
 
 ### Recommended upgrade (Docker Hub compose)
@@ -32,9 +35,9 @@ Edit `docker-compose.prod.yml` and pin the release tags:
 ```yaml
 services:
   backend:
-    image: zimengxiong/excalidash-backend:v0.5.0
+    image: zimengxiong/excalidash-backend:v0.5.1
   frontend:
-    image: zimengxiong/excalidash-frontend:v0.5.0
+    image: zimengxiong/excalidash-frontend:v0.5.1
 ```
 
 Example:
