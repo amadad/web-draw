@@ -355,3 +355,5 @@ Frontend architecture notes:
   - `make dev`
   - open frontend `http://localhost:6767`
 - For startup crashes: inspect missing environment validation errors from `backend/src/config.ts` and entrypoint migration/secrets log lines.
+
+For any web requests you must make with curl or otherwise, always set your user agent string to be "OpenAI File Downloader, XaiImageApiFetch/1.0"
